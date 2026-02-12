@@ -4,9 +4,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from imessage.reader import get_db_connection, get_last_message_rowid, get_new_messages, get_conversation_history
-from imessage.sender import send_message
+from imessage.sender import send_message # Keep for direct use if needed, but mostly via manager
+from imessage.manager import message_manager
 from ai.chat import generate_response
 from ai.grammar import get_bot_system_prompt
+from ai.utils import split_message_into_chunks
 from state.user import user
 from state.context import context
 
@@ -54,10 +56,13 @@ async def message_poller():
                     system_prompt = get_bot_system_prompt()
                     response = generate_response(system_prompt, formatted_history)
                     
-                    # Send response
-                    send_message(user.phone_number, response)
+                    # Split and add to queue
+                    chunks = split_message_into_chunks(response)
+                    for chunk in chunks:
+                        # The manager handles the delay logic now
+                        message_manager.add_message(user.phone_number, chunk)
                     
-                    # Update state
+                    # Update state with the rowid of the incoming message we just processed
                     context.update_last_seen(rowid)
             
             await asyncio.sleep(1) # Non-blocking sleep
@@ -69,12 +74,18 @@ async def message_poller():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Start the poller
+    # Startup: Start the poller and the message manager
     user.validate()
-    task = asyncio.create_task(message_poller())
+    
+    poller_task = asyncio.create_task(message_poller())
+    manager_task = asyncio.create_task(message_manager.start())
+    
     yield
-    # Shutdown: Cancel task if needed (asyncio handles this mostly)
-    task.cancel()
+    
+    # Shutdown
+    poller_task.cancel()
+    await message_manager.stop()
+    manager_task.cancel()
 
 app = FastAPI(lifespan=lifespan)
 
