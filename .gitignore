@@ -31,3 +31,7 @@ chat.db
 check_handles.py
 debug_db.py
 experiment_edit.py
+
+# Data files
+data/
+*.db
