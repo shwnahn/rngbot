@@ -1,6 +1,7 @@
 import asyncio
 import random
 from imessage.sender import send_message
+from imessage.typer import simulate_typing_activity
 from ai.utils import calculate_chunk_delay
 
 class MessageManager:
@@ -14,18 +15,31 @@ class MessageManager:
         print("MessageManager started.")
         while self.is_running:
             # Wait for a chunk from the queue
-            target_number, text = await self.queue.get()
+            # Item format: (target_number, text, service)
+            target_number, text, service = await self.queue.get()
             
             if text:
                 # Calculate natural delay
                 delay = calculate_chunk_delay(text)
                 
-                # Simulate typing/thinking time
-                # Optional: Send "Typing..." check? (Not easily possible via AppleScript)
-                await asyncio.sleep(delay)
+                # Trigger native typing indicator via UI script
+                # This steals focus but gives the "..." bubble!
+                # Run in executor to avoid blocking the loop heavily? 
+                # Actually, it's short lived.
+                if delay > 1.0: # Only for meaningful delays
+                   try:
+                       # Running sync blocking call in async loop is bad practice generally,
+                       # but for simplicity here we do it (or use run_in_executor)
+                       await asyncio.to_thread(simulate_typing_activity, target_number, delay)
+                   except Exception as e:
+                       print(f"Typing sim error: {e}")
+                       # Fallback to sleep if UI fails
+                       await asyncio.sleep(delay)
+                else:
+                    await asyncio.sleep(delay)
                 
                 # Send the message
-                send_message(target_number, text)
+                send_message(target_number, text, service)
             
             # Mark task as done
             self.queue.task_done()

@@ -35,10 +35,10 @@ def get_new_messages(conn, handle_id, last_seen_rowid):
     """Fetch new messages since the last seen ROWID."""
     cursor = conn.cursor()
     query = """
-    SELECT message.ROWID, message.text
+    SELECT message.ROWID, message.text, handle.service
     FROM message
     JOIN handle ON message.handle_id = handle.ROWID
-    WHERE handle.id = ? AND message.is_from_me = 0 AND message.ROWID > ?
+    WHERE handle.id = ? AND message.ROWID > ?
     ORDER BY message.date ASC
     """
     cursor.execute(query, (handle_id, last_seen_rowid))

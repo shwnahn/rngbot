@@ -31,11 +31,28 @@ async def message_poller():
 
         while True:
             # Poll for new messages
+            # print(f"Polling... Last seen: {context.last_seen_rowid}") # Very verbose
             new_msgs = get_new_messages(conn, user.phone_number, context.last_seen_rowid)
             
-            for rowid, text in new_msgs:
+            if new_msgs:
+                print(f"DEBUG: Found {len(new_msgs)} new messages. Last seen: {context.last_seen_rowid}")
+
+            for rowid, text, service in new_msgs:
                 if text:
-                    print(f"New message: {text}")
+                    # Check for trigger prefix if enabled
+                    if user.use_trigger:
+                        if not text.startswith(user.trigger_prefix):
+                            # Skip message if it doesn't start with prefix
+                            # But we still update last_seen so we don't process it again
+                            print(f"DEBUG: Ignoring '{text}' (No prefix '{user.trigger_prefix}')")
+                            context.update_last_seen(rowid)
+                            continue
+                        
+                        # Remove prefix for processing
+                        text = text[len(user.trigger_prefix):].strip()
+                        print(f"Triggered command: {text}")
+
+                    print(f"New message ({service}): {text}")
                     
                     # 1. Get recent history (limit 10)
                     # Note: This will include the message we just read (since it's in DB), 
