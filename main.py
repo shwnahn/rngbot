@@ -16,6 +16,7 @@ from state.user import user
 from state.context import context, UserState
 from memory.summary import generate_summary, extract_key_points
 from memory.storage import init_database
+from channels.telegram import TelegramBot # Import TelegramBot
 
 # Setup Templates
 templates = Jinja2Templates(directory="templates")
@@ -41,16 +42,17 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-async def process_user_message(text: str, service: str, conn, reply_callback, rowid: Optional[int] = None):
+async def process_user_message(text: str, service: str, conn, reply_callback, rowid: Optional[int] = None, history: Optional[List[dict]] = None):
     """
     Core message processing pipeline.
     
     Args:
         text: The message text
-        service: Service name (e.g. iMessage, Web)
-        conn: Database connection
+        service: Service name (e.g. iMessage, Web, Telegram)
+        conn: Database connection (optional if history provided)
         reply_callback: Async function to handle response chunks (arg: text)
         rowid: Optional rowid if from iMessage DB
+        history: Optional list of history messages [{'role': ..., 'content': ...}]
     """
     print(f"Processing message ({service}): {text}")
     
@@ -61,25 +63,47 @@ async def process_user_message(text: str, service: str, conn, reply_callback, ro
         # Check language but don't mess with last_seen_rowid
         detected_lang = context.detect_and_set_language(text)
         context.current_state = UserState.WAITING
-        print(f"[Web] Language: {detected_lang}, State: {context.current_state}")
+        print(f"[{service}] Language: {detected_lang}, State: {context.current_state}")
     
     # Start new response session
     session_id = context.start_response_session()
     message_manager.session_id = session_id
     
-    # Get recent history (limit 20)
-    history_rows = get_conversation_history(conn, user.phone_number, limit=20)
-    print(f"DEBUG: Loaded {len(history_rows)} messages from history")
-    
-    # Convert to OpenAI format
+    # Get recent history
     formatted_history = []
-    for is_from_me, msg_text in history_rows:
-        role = "assistant" if is_from_me else "user"
-        formatted_history.append({"role": role, "content": msg_text})
     
-    # If this is a Web message (not in DB), append it manually to history
-    if rowid is None:
-        formatted_history.append({"role": "user", "content": text})
+    if history:
+         formatted_history = history
+    elif conn:
+        # Get recent history (limit 20)
+        history_rows = get_conversation_history(conn, user.phone_number, limit=20)
+        print(f"DEBUG: Loaded {len(history_rows)} messages from history")
+        
+        # Convert to OpenAI format
+        for is_from_me, msg_text in history_rows:
+            role = "assistant" if is_from_me else "user"
+            formatted_history.append({"role": role, "content": msg_text})
+    
+    # If this is a Web/Telegram message (not in iMessage DB yet, or just coming in),
+    # ensure it's in history if not already. 
+    # For Telegram, we pass history *excluding* the current message usually, or including?
+    # Let's assume passed history includes valid past. 
+    # But usually context includes the LATEST user message. 
+    # OpenAI ChatCompletion expects the last message to be the user prompt usually? 
+    # No, we pass list of messages. The API treats the last user message as the prompt.
+    
+    # If 'history' was passed, we assume it's the PAST history. We append current msg?
+    # Or 'history' includes current? 
+    # In channels/telegram.py, we call save_telegram_message(user, text) BEFORE calling this.
+    # So get_telegram_history will INCLUDE the current message.
+    # So we don't need to append.
+    
+    # However, for Web Interface (rowid is None, and logic below appends):
+    if rowid is None and not history:
+         formatted_history.append({"role": "user", "content": text})
+         
+    # Wait, if history IS passed, does it include the current one?
+    # In telegram.py I save it first. So yes. 
     
     print(f"DEBUG: Formatted history ({len(formatted_history)} messages):")
     # for i, msg in enumerate(formatted_history[-5:]):  # Show last 5
@@ -183,12 +207,24 @@ async def lifespan(app: FastAPI):
     # Startup: Start the poller and the message manager
     user.validate()
     
+    # Initialize Telegram Bot
+    print("[Main] Initializing Telegram Bot...")
+    try:
+        telegram_bot = TelegramBot(process_user_message)
+        await telegram_bot.initialize()
+        await telegram_bot.start_polling()
+        print("[Main] Telegram Bot started.")
+    except Exception as e:
+        print(f"[Main] Error starting Telegram Bot: {e}")
+    
+    print("[Main] Starting message poller...")
     poller_task = asyncio.create_task(message_poller())
     manager_task = asyncio.create_task(message_manager.start())
     
     yield
     
     # Shutdown
+    await telegram_bot.stop()
     poller_task.cancel()
     await message_manager.stop()
     manager_task.cancel()

@@ -46,6 +46,17 @@ def init_database():
     )
     """)
     
+    # Telegram messages table (for history)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS telegram_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        role TEXT NOT NULL, -- 'user' or 'assistant'
+        text TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    
     conn.commit()
     conn.close()
     print(f"[Storage] Database initialized at {DB_PATH}")
@@ -207,3 +218,47 @@ def get_all_profile_data():
             profile[key] = value
     
     return profile
+
+
+def save_telegram_message(user_id, role, text):
+    """
+    Save a Telegram message to history.
+    """
+    ensure_db_directory()
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+    INSERT INTO telegram_messages (user_id, role, text)
+    VALUES (?, ?, ?)
+    """, (user_id, role, text))
+    
+    conn.commit()
+    conn.close()
+
+
+def get_telegram_history(user_id, limit=20):
+    """
+    Get recent Telegram history for a user.
+    Returns list of dicts: {'role': ..., 'content': ...}
+    """
+    if not os.path.exists(DB_PATH):
+        return []
+        
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+    SELECT role, text
+    FROM telegram_messages
+    WHERE user_id = ?
+    ORDER BY created_at DESC
+    LIMIT ?
+    """, (user_id, limit))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    # Return in chronological order (oldest first)
+    history = [{"role": row[0], "content": row[1]} for row in rows]
+    return history[::-1]
