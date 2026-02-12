@@ -1,6 +1,6 @@
 import subprocess
 
-def send_message(phone_number, message):
+def send_message(phone_number, message, service="iMessage"):
     """Send an iMessage using AppleScript."""
     if not message:
         return

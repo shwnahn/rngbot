@@ -39,28 +39,9 @@ async def message_poller():
 
             for rowid, text, service in new_msgs:
                 if text:
-                    # Check for trigger prefix if enabled
-                    if user.use_trigger:
-                        if not text.startswith(user.trigger_prefix):
-                            # Skip message if it doesn't start with prefix
-                            # But we still update last_seen so we don't process it again
-                            print(f"DEBUG: Ignoring '{text}' (No prefix '{user.trigger_prefix}')")
-                            context.update_last_seen(rowid)
-                            continue
-                        
-                        # Remove prefix for processing
-                        text = text[len(user.trigger_prefix):].strip()
-                        print(f"Triggered command: {text}")
-
                     print(f"New message ({service}): {text}")
                     
-                    # 1. Get recent history (limit 10)
-                    # Note: This will include the message we just read (since it's in DB), 
-                    # but we might need to handle it carefully to avoid duplication if the logic implies it.
-                    # Actually, get_new_messages gets us the 'delta'. 
-                    # get_conversation_history gets us the 'state'.
-                    # Let's clean up:
-                    
+                    # Get recent history (limit 10)
                     history_rows = get_conversation_history(conn, user.phone_number, limit=10)
                     
                     # Convert to OpenAI format
@@ -71,12 +52,16 @@ async def message_poller():
                     
                     # Generate AI response
                     system_prompt = get_bot_system_prompt()
+                    print(f"DEBUG: Generating AI response...")
                     response = generate_response(system_prompt, formatted_history)
+                    print(f"DEBUG: AI response: {response[:100]}...")
                     
                     # Split and add to queue
                     chunks = split_message_into_chunks(response)
+                    print(f"DEBUG: Split into {len(chunks)} chunks")
                     for chunk in chunks:
                         # The manager handles the delay logic now
+                        print(f"DEBUG: Adding chunk to queue: {chunk}")
                         message_manager.add_message(user.phone_number, chunk)
                     
                     # Update state with the rowid of the incoming message we just processed

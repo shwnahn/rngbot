@@ -16,37 +16,30 @@ class MessageManager:
         while self.is_running:
             # Wait for a chunk from the queue
             # Item format: (target_number, text, service)
+            print("DEBUG: Waiting for message from queue...")
             target_number, text, service = await self.queue.get()
+            print(f"DEBUG: Got message from queue: {text}")
             
             if text:
                 # Calculate natural delay
                 delay = calculate_chunk_delay(text)
+                print(f"DEBUG: Waiting {delay:.2f}s before sending...")
                 
-                # Trigger native typing indicator via UI script
-                # This steals focus but gives the "..." bubble!
-                # Run in executor to avoid blocking the loop heavily? 
-                # Actually, it's short lived.
-                if delay > 1.0: # Only for meaningful delays
-                   try:
-                       # Running sync blocking call in async loop is bad practice generally,
-                       # but for simplicity here we do it (or use run_in_executor)
-                       await asyncio.to_thread(simulate_typing_activity, target_number, delay)
-                   except Exception as e:
-                       print(f"Typing sim error: {e}")
-                       # Fallback to sleep if UI fails
-                       await asyncio.sleep(delay)
-                else:
-                    await asyncio.sleep(delay)
+                # Simple delay without typing simulation
+                # (Typing simulation requires Accessibility permissions)
+                await asyncio.sleep(delay)
                 
                 # Send the message
+                print(f"DEBUG: Sending message: {text}")
                 send_message(target_number, text, service)
+                print(f"DEBUG: Message sent!")
             
             # Mark task as done
             self.queue.task_done()
 
-    def add_message(self, target_number, text):
+    def add_message(self, target_number, text, service="iMessage"):
         """Add a message to the queue."""
-        self.queue.put_nowait((target_number, text))
+        self.queue.put_nowait((target_number, text, service))
 
     async def stop(self):
         """Stop the worker (gracefully ideally, but here just flag)."""
