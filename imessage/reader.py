@@ -47,12 +47,20 @@ def get_new_messages(conn, handle_id, last_seen_rowid):
 def get_conversation_history(conn, handle_id, limit=10):
     """Fetch recent conversation history for context."""
     cursor = conn.cursor()
-    # Fetch last N messages (both from me and from handle)
+    # Use chat_message_join to get all messages in the conversation
+    # This properly includes both sent and received messages
     query = """
     SELECT message.is_from_me, message.text
     FROM message
-    JOIN handle ON message.handle_id = handle.ROWID
-    WHERE handle.id = ? AND message.text IS NOT NULL
+    JOIN chat_message_join ON message.ROWID = chat_message_join.message_id
+    JOIN chat ON chat_message_join.chat_id = chat.ROWID
+    JOIN handle ON chat.ROWID IN (
+        SELECT chat_handle_join.chat_id 
+        FROM chat_handle_join 
+        WHERE chat_handle_join.handle_id = (SELECT ROWID FROM handle WHERE id = ?)
+    )
+    WHERE message.text IS NOT NULL
+    GROUP BY message.ROWID
     ORDER BY message.date DESC
     LIMIT ?
     """
