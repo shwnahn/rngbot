@@ -6,13 +6,25 @@ load_dotenv()
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def generate_response(system_prompt, message_history):
+def generate_response(system_prompt, message_history, summary_context=""):
     """
     Generate a response using OpenAI.
-    message_history: List of dictionaries [{'role': 'user'|'assistant', 'content': '...'}, ...]
+    
+    Args:
+        system_prompt: Base system prompt
+        message_history: List of dictionaries [{'role': 'user'|'assistant', 'content': '...'}, ...]
+        summary_context: Optional conversation summary to include in system prompt
+    
+    Returns:
+        str: Generated response
     """
     try:
-        messages = [{"role": "system", "content": system_prompt}] + message_history
+        # Append summary context to system prompt if available
+        enhanced_prompt = system_prompt
+        if summary_context:
+            enhanced_prompt += summary_context
+        
+        messages = [{"role": "system", "content": enhanced_prompt}] + message_history
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
