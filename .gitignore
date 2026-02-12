@@ -29,3 +29,5 @@ pip-delete-this-directory.txt
 # RingleBot specific
 chat.db
 check_handles.py
+debug_db.py
+experiment_edit.py
